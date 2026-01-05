@@ -12,7 +12,8 @@
 * **`START_POINT`**: 起點座標 `(Y, X)`。
     * 注意Y是垂直軸(由上往下算)，X是水平軸(由左往右算)。
     * 使用小畫家或Photoshop開啟圖片，滑鼠移到起點，查看資訊欄的像素座標。如下圖為`(500, 1100)`
-* ![image](https://img1.pixhost.to/images/11411/680608162__2026_01_06_01_48_48_652.png)
+* ![Photoshop內尋找座標](https://img1.pixhost.to/images/11411/680608162__2026_01_06_01_48_48_652.png)
+
 ### 2. 顏色定義 (RGB)
 根據需分析的圖片，填入圖片中對應顏色的RGB數值。
 * **`WALL` (黑色)**: 障礙物與建築物。
@@ -20,14 +21,14 @@
 * **`PLAZA` (綠色)**: 絕對安全的可行走區域(人行道、廣場)。
 * **`PORTAL` (紅色)**: 斑馬線(如傳送門般繼承步行時間並加上等待通行的懲罰時間)。
 * **`COLOR_TOLERANCE`**: 顏色容許誤差。預設 `40`。如果圖片有雜訊或顏色不純，可調高此數值。
-
+![site_existing範例圖片](https://img1.pixhost.to/images/11412/680613415_site_existing.jpg)
 ### 3. 分析參數
 * **`PIXELS_PER_MINUTE`**: 步行速度換算。(圖面1分鐘步行距離的像素長度)。
 * **`METERS_PER_PIXEL`**: 比例尺。(真實距離/圖面像素)
-* **`MAX_VISUAL_TIME`**: 熱力圖最大顯示分鐘數(與下同)
+* **`MAX_VISUAL_TIME`**: 熱力圖最大顯示分鐘數(與下列數列最大值同)
 * **`LEVELS`**: 等時圈的分鐘數設定，例如[1, 3, 5, 8, 10, 15] 代表會在這些時間點畫白線。
 * **`PENALTY_BASE`**: 過馬路的起跳等待時間(分鐘)。
-* **`PENALTY_FACTOR`**: 斑馬線長度權重。等待時間=Base+(長度公尺 * Factor)
+* **`PENALTY_FACTOR`**: 斑馬線長度權重。等待時間=Base+(長度公尺*Factor)
 
 
 ## 結構與邏輯解釋
@@ -46,15 +47,17 @@
 ## 如何解讀輸出圖表
 
 ### 1. 單一方案資料夾 (`folder_existing`, `folder_proposed`)
-* **`Branch_Portal_XX.png`**:只走這條斑馬線離開起點能走到哪裡？這能檢視單一路徑的服務範圍。
+* **`Branch_Portal_XX.png`**:一次只走一條斑馬線離開起點能走到哪裡？這能檢視單一路徑的服務範圍。
+![分支服務範圍範例圖](https://img1.pixhost.to/images/11412/680614192_branch_portal_07.png)
 * **`FINAL_Stacked.png`**:該方案的最終綜合熱力圖。(藍/綠):步行時間短，可達性高。(黃/紅):步行時間長，可達性低。
+![最小時間疊圖範例圖](https://img1.pixhost.to/images/11412/680614247_final_stacked.png)
 
 ### 2. 設計效益比較圖 (`COMPARISON_Diff_Map.png`)
 這張圖在最外層，將現況與設計後兩張圖相減。
 * 藍色區域:顏色越深代表省下的時間越多。
 * 金色區域:代表原本該處走不到，設計介入後變成可達。
 * 紅色區域:通常不應出現，除非設計移除了捷徑。
-
+![設計效益範例圖](https://img1.pixhost.to/images/11412/680614645_comparison_diff_map.png)
 ## 錯誤排查
 
 檢查TERMINAL的錯誤訊息：
