@@ -1,15 +1,12 @@
-<index html>
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>城市步行可達性分析工具 (Urban Connectivity Tool)</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
-    <!-- Pyodide -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         .loader {
@@ -59,7 +56,6 @@
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans h-screen flex flex-col overflow-hidden">
 
-    <!-- Header -->
     <header class="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center shadow-sm z-10">
         <div class="flex items-center gap-3">
             <i data-lucide="map" class="text-blue-600"></i>
@@ -70,12 +66,10 @@
                 <div class="loader w-4 h-4 border-2"></div> 初始化 Python 環境中...
             </span>
             
-            <!-- Readme Button -->
             <button onclick="toggleReadme()" class="flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-blue-600 transition bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-full">
                 <i data-lucide="book-open" class="w-4 h-4"></i> 使用說明
             </button>
 
-            <!-- Github Link -->
             <a href="https://github.com/gcpcorp50111/urban-telegram" target="_blank" class="text-gray-500 hover:text-black transition" title="View on GitHub">
                 <i data-lucide="github"></i>
             </a>
@@ -84,10 +78,8 @@
 
     <div class="flex flex-1 overflow-hidden relative">
         
-        <!-- Left Sidebar: Controls -->
         <aside class="w-80 bg-white border-r border-gray-200 overflow-y-auto p-5 flex flex-col gap-5 shadow-lg z-10">
             
-            <!-- 1. File Upload -->
             <div class="space-y-2">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">1. 上傳底圖</h3>
                 <input type="file" id="file-existing" accept="image/*" class="block w-full text-xs text-gray-500 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700"/>
@@ -96,7 +88,6 @@
 
             <hr class="border-gray-100">
 
-            <!-- 2. Start Point -->
             <div class="space-y-2">
                 <div class="flex justify-between items-center">
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">2. 設定起點</h3>
@@ -113,7 +104,6 @@
 
             <hr class="border-gray-100">
 
-            <!-- 3. Scale & Speed -->
             <div class="space-y-3">
                 <div class="flex justify-between items-center">
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">3. 比例尺與速度</h3>
@@ -141,7 +131,6 @@
 
             <hr class="border-gray-100">
 
-            <!-- 4. Isochrone Levels -->
             <div class="space-y-2">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">4. 等時圈 (分鐘)</h3>
                 <input type="text" id="levels-input" value="1, 3, 5, 8, 10, 15" class="w-full border rounded px-2 py-1 text-xs font-mono" placeholder="以逗號分隔">
@@ -154,12 +143,10 @@
 
             <hr class="border-gray-100">
 
-            <!-- 5. Color Palette -->
             <div class="space-y-2">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">5. 顏色定義</h3>
                 <div class="grid grid-cols-4 gap-1" id="color-pickers">
-                    <!-- JS generated -->
-                </div>
+                    </div>
                 <div class="flex items-center gap-2 mt-1">
                     <label class="text-[10px] text-gray-500 whitespace-nowrap">容許誤差</label>
                     <input type="range" id="color-tolerance" min="10" max="100" value="40" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
@@ -167,28 +154,25 @@
                 </div>
             </div>
 
-            <!-- Run Button -->
             <button id="btn-run" disabled class="mt-auto w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex justify-center items-center gap-2">
                 <i data-lucide="play"></i> 開始分析
             </button>
 
         </aside>
 
-        <!-- Readme Drawer (Hidden by default) -->
         <div id="readme-drawer" class="fixed inset-y-0 right-0 w-[500px] bg-white shadow-2xl transform translate-x-full transition-transform duration-300 ease-in-out z-50 flex flex-col border-l border-gray-200">
             <div class="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
                 <h2 class="font-bold text-gray-800 flex items-center gap-2"><i data-lucide="book-open" class="text-blue-600"></i> 使用說明 (README)</h2>
                 <button onclick="toggleReadme()" class="p-1 hover:bg-gray-200 rounded text-gray-500"><i data-lucide="x"></i></button>
             </div>
             <div class="flex-1 overflow-y-auto p-6 prose prose-sm prose-blue max-w-none">
-                <!-- Readme Content -->
                 <h3>城市步行可達性與路徑連通分析工具</h3>
                 <p>此分析工具用於評估城市設計方案前後的步行可達性變化。結合了電腦視覺與路徑演算法，模擬行人如何穿越斑馬線並擴散至周邊街廓。</p>
 
                 <h4>調整參數</h4>
                 <p>所有可調整的參數都集中在程式左側的控制面板：</p>
                 <ul>
-                    <li><strong>檔案與位置</strong>：上傳設計前(現況)與設計後(方案)的底圖。</li>
+                    <li><strong>檔案與位置</strong>：上傳設計前(現況)與設計後(方案)的底圖。例如新增了天橋、廣場或地下道，則在底圖上標示成綠色廊道(可行走區域)。</li>
                     <li><strong>設定起點</strong>：點擊「點圖選取」按鈕，在圖片上指定起點 (Y, X)。</li>
                     <li><strong>顏色定義</strong>：使用吸管工具吸取牆壁(黑)、道路(白)、綠地(綠)、斑馬線(紅)的顏色。</li>
                 </ul>
@@ -239,13 +223,10 @@
                 </ul>
             </div>
         </div>
-        <!-- Overlay for Drawer -->
         <div id="readme-overlay" onclick="toggleReadme()" class="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 hidden transition-opacity opacity-0"></div>
 
-        <!-- Main Content Area -->
         <main class="flex-1 flex flex-col bg-gray-100 overflow-hidden relative">
             
-            <!-- Image Preview Area -->
             <div id="preview-container" class="flex-1 p-4 overflow-auto flex justify-center gap-4 relative">
                 
                 <div id="tool-instruction" class="hidden absolute top-4 left-1/2 transform -translate-x-1/2 z-30 bg-black/70 text-white px-4 py-2 rounded-full text-sm font-medium shadow-lg pointer-events-none">
@@ -277,7 +258,6 @@
                 </div>
             </div>
 
-            <!-- Results Panel -->
             <div id="results-panel" class="hidden absolute inset-0 bg-white z-40 flex flex-col">
                 <div class="bg-gray-800 text-white px-6 py-3 flex justify-between items-center">
                     <h2 class="font-bold">分析結果 (Analysis Results)</h2>
@@ -333,7 +313,6 @@
                 </div>
             </div>
 
-            <!-- Loading Overlay -->
             <div id="loading-overlay" class="hidden absolute inset-0 bg-white/90 z-50 flex flex-col items-center justify-center backdrop-blur-sm">
                 <div class="loader w-10 h-10 border-4 border-blue-600 border-t-transparent mb-4"></div>
                 <h3 class="text-lg font-bold text-blue-800">運算中...</h3>
@@ -344,7 +323,6 @@
         </main>
     </div>
 
-    <!-- Python Code -->
     <script type="text/python" id="python-script">
 import io, base64, numpy as np, matplotlib.pyplot as plt
 import matplotlib
@@ -355,7 +333,12 @@ from skimage.morphology import remove_small_objects, binary_opening, disk, binar
 from skimage.measure import label, regionprops
 from scipy.ndimage import distance_transform_edt
 
-def run_pipeline_step(img_b64, start_point, config, step_name):
+def run_pipeline_step(img_b64, start_point_proxy, config_proxy, step_name):
+    # --- FIX START: Convert JS Proxies to Python Objects ---
+    config = config_proxy.to_py()
+    start_point = start_point_proxy.to_py()
+    # --- FIX END ---
+
     # Unpack config
     pal = config['palette']
     tol = config['tolerance']
@@ -517,12 +500,15 @@ def run_comparison(res1, res2, start_point):
     return base64.b64encode(buf.getvalue()).decode('utf-8')
 
 def main_process(img1, img2, start, conf):
+    # Pass 'start' and 'conf' directly; run_pipeline_step handles the .to_py() conversion
     r1 = run_pipeline_step(img1, start, conf, "Existing")
     if "error" in r1: return r1
     r2 = run_pipeline_step(img2, start, conf, "Proposed")
     if "error" in r2: return r2
     
-    comp_img = run_comparison(r1, r2, start)
+    # Note: start is a JS Proxy here too, so we convert it for run_comparison
+    start_py = start.to_py()
+    comp_img = run_comparison(r1, r2, start_py)
     
     return {
         "existing": {"final": r1['final_img'], "branches": r1['branches']},
@@ -531,7 +517,6 @@ def main_process(img1, img2, start, conf):
     }
     </script>
 
-    <!-- JS Logic -->
     <script>
         let pyodide = null;
         let toolState = null; // 'picker' | 'start' | 'calibrate_1' | 'calibrate_2'
@@ -565,6 +550,7 @@ def main_process(img1, img2, start, conf):
                 pyodide.runPython(document.getElementById('python-script').textContent);
             } catch (err) {
                 document.getElementById('py-status').innerText = 'Python 載入失敗';
+                console.error(err);
             }
         });
 
@@ -819,6 +805,7 @@ def main_process(img1, img2, start, conf):
 
             } catch(e) {
                 alert("錯誤: " + e.message);
+                console.error(e);
             } finally {
                 overlay.classList.add('hidden');
             }

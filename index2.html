@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>城市步行可達性分析工具 (Urban Connectivity Tool)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <!-- Pyodide -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Panzoom for Canvas interaction -->
+    <script src="https://unpkg.com/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        
+        .loader {
+            width: 24px; height: 24px;
+            border: 3px solid #e5e7eb;
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .canvas-container {
+            background-image: radial-gradient(#e5e7eb 1px, transparent 1px);
+            background-size: 20px 20px;
+            cursor: grab;
+        }
+        .canvas-container:active { cursor: grabbing; }
+        .tool-active { cursor: crosshair !important; }
+        
+        .floating-panel {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        
+        /* Readme Images */
+        .prose img {
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-top: 1em;
+            margin-bottom: 1em;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .range-track {
+            position: relative;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 3px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+        }
+        .range-tick {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            background: #3b82f6;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .range-label {
+            position: absolute;
+            top: 12px;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Navbar -->
+    <nav class="bg-white/80 backdrop-blur border-b border-gray-200 h-14 flex items-center justify-between px-4 z-20 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-600 text-white p-1.5 rounded-lg shadow-sm">
+                <i data-lucide="map" class="w-5 h-5"></i>
+            </div>
+            <span class="font-semibold text-lg tracking-tight">Urban Connectivity</span>
+            <span class="text-xs font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded">v2.2</span>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <!-- Python Status -->
+            <div id="py-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-50 text-orange-600 text-xs font-medium border border-orange-100 transition-colors">
+                <div class="loader w-3 h-3 border-2"></div>
+                <span>Loading Engine...</span>
+            </div>
+
+            <div class="h-6 w-px bg-gray-200 mx-1"></div>
+
+            <button onclick="toggleReadme()" class="text-gray-600 hover:text-blue-600 transition p-2 hover:bg-gray-100 rounded-lg flex items-center gap-2" title="使用說明">
+                <i data-lucide="book-open" class="w-5 h-5"></i>
+                <span class="text-sm font-medium hidden sm:inline">使用說明</span>
+            </button>
+            <a href="https://github.com/gcpcorp50111/urban-telegram" target="_blank" class="text-gray-500 hover:text-black transition p-2 hover:bg-gray-100 rounded-lg" title="GitHub Repo">
+                <i data-lucide="github" class="w-5 h-5"></i>
+            </a>
+        </div>
+    </nav>
+
+    <div class="flex flex-1 overflow-hidden relative">
+        
+        <!-- Left Sidebar: Controls -->
+        <aside class="w-80 bg-white border-r border-gray-200 flex flex-col z-10 shadow-xl transform transition-transform duration-300 translate-x-0" id="sidebar">
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Configuration</span>
+                <button id="btn-run" disabled class="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white px-4 py-1.5 rounded-md text-xs font-semibold shadow-sm transition-all flex items-center gap-2">
+                    <i data-lucide="play" class="w-3 h-3 fill-current"></i> 開始分析
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4 space-y-6">
+                
+                <!-- 1. Upload -->
+                <section class="space-y-3">
+                    <div class="flex items-center gap-2 text-slate-700">
+                        <div class="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold">1</div>
+                        <h3 class="text-sm font-semibold">上傳底圖</h3>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="cursor-pointer group relative aspect-square rounded-lg border-2 border-dashed border-gray-300 hover:border-blue-400 bg-gray-50 hover:bg-blue-50 transition flex flex-col items-center justify-center text-center p-2">
+                            <input type="file" id="file-existing" accept="image/*" class="hidden" />
+                            <i data-lucide="image" class="w-6 h-6 text-gray-400 group-hover:text-blue-500 mb-2"></i>
+                            <span class="text-[10px] font-medium text-gray-500 group-hover:text-blue-600">現況圖 (Existing)</span>
+                            <div id="preview-thumb-existing" class="absolute inset-0 rounded-lg bg-cover bg-center hidden opacity-60"></div>
+                        </label>
+                        
+                        <label class="cursor-pointer group relative aspect-square rounded-lg border-2 border-dashed border-gray-300 hover:border-green-400 bg-gray-50 hover:bg-green-50 transition flex flex-col items-center justify-center text-center p-2">
+                            <input type="file" id="file-proposed" accept="image/*" class="hidden" />
+                            <i data-lucide="image-plus" class="w-6 h-6 text-gray-400 group-hover:text-green-500 mb-2"></i>
+                            <span class="text-[10px] font-medium text-gray-500 group-hover:text-green-600">設計後 (Proposed)</span>
+                            <div id="preview-thumb-proposed" class="absolute inset-0 rounded-lg bg-cover bg-center hidden opacity-60"></div>
+                        </label>
+                    </div>
+                </section>
+
+                <!-- 2. Colors -->
+                <section class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2 text-slate-700">
+                            <div class="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold">2</div>
+                            <h3 class="text-sm font-semibold">顏色定義</h3>
+                        </div>
+                        <span class="text-[10px] text-gray-400">使用吸管工具選取</span>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div id="color-palette" class="grid grid-cols-1 gap-2">
+                            <!-- JS Generated -->
+                        </div>
+                        <div class="flex items-center justify-between pt-2">
+                            <label class="text-[10px] font-medium text-gray-500">顏色容許誤差 (Tolerance)</label>
+                            <span id="tol-display" class="text-[10px] font-mono bg-gray-100 px-1.5 rounded">40</span>
+                        </div>
+                        <input type="range" id="color-tolerance" min="10" max="100" value="40" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </section>
+
+                <!-- 3. Scale & Parameters -->
+                <section class="space-y-3">
+                    <div class="flex items-center gap-2 text-slate-700">
+                        <div class="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold">3</div>
+                        <h3 class="text-sm font-semibold">分析參數</h3>
+                    </div>
+
+                    <div class="bg-slate-50 rounded-lg p-3 border border-slate-100 space-y-3">
+                        <div class="flex justify-between items-center">
+                            <label class="text-[11px] font-medium text-slate-500">起點座標 (Y, X)</label>
+                            <div class="flex gap-1">
+                                <input id="start-y" type="number" class="w-12 h-6 text-[10px] border rounded px-1 text-center font-mono" value="1100">
+                                <input id="start-x" type="number" class="w-12 h-6 text-[10px] border rounded px-1 text-center font-mono" value="500">
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-between items-center">
+                            <label class="text-[11px] font-medium text-slate-500">比例尺 (m/px)</label>
+                            <input id="scale-mpp" type="number" step="0.1" class="w-16 h-6 text-[10px] border rounded px-1 text-right font-mono" value="0.8">
+                        </div>
+
+                        <div class="flex justify-between items-center">
+                            <label class="text-[11px] font-medium text-slate-500">步行速度 (m/min)</label>
+                            <input id="walk-speed" type="number" class="w-16 h-6 text-[10px] border rounded px-1 text-right font-mono" value="200">
+                        </div>
+                        
+                        <div class="pt-2 border-t border-slate-200">
+                            <label class="text-[11px] font-medium text-slate-500 block mb-1">等時圈 (分鐘)</label>
+                            <input id="levels-input" type="text" class="w-full h-7 text-[10px] border rounded px-2 font-mono" value="1, 3, 5, 8, 10, 15">
+                            <div class="px-1 mt-2">
+                                <div class="range-track" id="levels-track"></div>
+                            </div>
+                            <p class="text-[10px] text-gray-400 text-right mt-1">Max: <span id="max-time-disp">15</span> min</p>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="flex-1 bg-gray-100 relative overflow-hidden flex flex-col">
+            
+            <!-- Toolbar (Floating) -->
+            <div class="absolute top-4 left-1/2 transform -translate-x-1/2 z-30 flex gap-2 floating-panel bg-white/90 p-1.5 rounded-xl shadow-lg border border-gray-200/50">
+                <button onclick="setTool('pan')" id="tool-pan" class="p-2 rounded-lg hover:bg-gray-100 text-slate-600 tool-btn active" title="移動畫面">
+                    <i data-lucide="move" class="w-4 h-4"></i>
+                </button>
+                <div class="w-px bg-gray-200 h-8 mx-1"></div>
+                <button onclick="setTool('start')" id="tool-start" class="p-2 rounded-lg hover:bg-blue-50 text-slate-600 hover:text-blue-600 tool-btn" title="設定起點">
+                    <i data-lucide="map-pin" class="w-4 h-4"></i>
+                </button>
+                <button onclick="setTool('measure')" id="tool-measure" class="p-2 rounded-lg hover:bg-blue-50 text-slate-600 hover:text-blue-600 tool-btn" title="測量比例尺">
+                    <i data-lucide="ruler" class="w-4 h-4"></i>
+                </button>
+                <button onclick="resetView()" class="p-2 rounded-lg hover:bg-gray-100 text-slate-600 tool-btn" title="重置視角">
+                    <i data-lucide="maximize" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <!-- Canvas Area (Panzoom) -->
+            <div id="canvas-wrapper" class="flex-1 overflow-hidden relative canvas-container flex items-center justify-center">
+                <div id="panzoom-element" class="relative shadow-2xl origin-center">
+                    <!-- Images will be drawn here -->
+                    <canvas id="main-canvas" class="bg-white"></canvas>
+                    
+                    <!-- Interactive Layer (SVG) -->
+                    <svg id="interaction-layer" class="absolute inset-0 w-full h-full pointer-events-none">
+                        <!-- Start Point -->
+                        <g id="marker-start" class="hidden">
+                            <circle r="6" fill="#FACC15" stroke="black" stroke-width="2" />
+                            <circle r="2" fill="black" />
+                        </g>
+                        <!-- Measure Line -->
+                        <g id="measure-group" class="hidden">
+                            <line id="measure-line" stroke="#3B82F6" stroke-width="2" stroke-dasharray="4" />
+                            <circle id="measure-p1" r="3" fill="#3B82F6" />
+                            <circle id="measure-p2" r="3" fill="#3B82F6" />
+                            <text id="measure-text" fill="#1E40AF" font-size="12" font-weight="bold" paint-order="stroke" stroke="white" stroke-width="3"></text>
+                        </g>
+                    </svg>
+                </div>
+                
+                <!-- View Mode Switcher -->
+                <div class="absolute bottom-4 right-4 bg-white rounded-lg shadow-md border border-gray-200 p-1 flex text-xs font-medium z-30">
+                    <button onclick="setViewMode('existing')" id="view-existing" class="px-3 py-1.5 rounded hover:bg-gray-100 text-slate-600 transition bg-slate-100">現況圖</button>
+                    <button onclick="setViewMode('proposed')" id="view-proposed" class="px-3 py-1.5 rounded hover:bg-gray-100 text-slate-600 transition">設計後</button>
+                </div>
+            </div>
+
+            <!-- Results Overlay (Full Screen) -->
+            <div id="results-overlay" class="absolute inset-0 bg-white z-40 hidden flex flex-col">
+                <div class="h-14 border-b border-gray-200 flex justify-between items-center px-6 bg-white">
+                    <h2 class="font-bold text-lg flex items-center gap-2"><i data-lucide="bar-chart-2" class="text-blue-600"></i> 分析結果</h2>
+                    <button onclick="closeResults()" class="p-2 hover:bg-gray-100 rounded-full"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+                
+                <div class="flex-1 overflow-hidden flex">
+                    <!-- Result Sidebar -->
+                    <div class="w-64 bg-gray-50 border-r border-gray-200 flex flex-col p-4 gap-2">
+                        <button onclick="showResult('compare')" class="res-tab active w-full text-left px-4 py-3 rounded-lg text-sm font-medium hover:bg-white border border-transparent hover:shadow-sm transition bg-white border-gray-200 shadow-sm text-blue-600">
+                            <div class="flex justify-between items-center">
+                                <span>效益比較</span>
+                                <i data-lucide="arrow-right-left" class="w-4 h-4 opacity-50"></i>
+                            </div>
+                        </button>
+                        <button onclick="showResult('existing')" class="res-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium hover:bg-white border border-transparent hover:shadow-sm transition text-slate-600">
+                            現況分析 (Existing)
+                        </button>
+                        <button onclick="showResult('proposed')" class="res-tab w-full text-left px-4 py-3 rounded-lg text-sm font-medium hover:bg-white border border-transparent hover:shadow-sm transition text-slate-600">
+                            設計後分析 (Proposed)
+                        </button>
+                        
+                        <div class="mt-auto pt-4 border-t border-gray-200">
+                            <button id="dl-current" class="w-full bg-slate-800 text-white py-2 rounded-lg text-xs font-bold hover:bg-black transition flex items-center justify-center gap-2">
+                                <i data-lucide="download" class="w-3 h-3"></i> 下載目前圖片
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Result Viewer -->
+                    <div class="flex-1 bg-gray-100 p-8 flex flex-col items-center justify-center relative">
+                        <div class="bg-white p-2 rounded-xl shadow-xl border border-gray-200 max-w-full max-h-full flex flex-col">
+                            
+                            <!-- Branch Controls (Hidden for Compare) -->
+                            <div id="branch-controls" class="hidden px-4 py-2 border-b border-gray-100 flex items-center justify-between gap-4 mb-2">
+                                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">分支模擬切換</span>
+                                <div class="flex items-center gap-3 flex-1">
+                                    <button onclick="stepBranch(-1)" class="p-1 hover:bg-gray-100 rounded"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                                    <input type="range" id="branch-slider" min="0" max="0" value="0" class="flex-1 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                                    <button onclick="stepBranch(1)" class="p-1 hover:bg-gray-100 rounded"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+                                </div>
+                                <span id="branch-label" class="text-xs font-mono font-medium text-blue-600 w-32 text-right">Final Stacked</span>
+                            </div>
+
+                            <div class="flex-1 overflow-auto flex items-center justify-center bg-gray-50 rounded-lg min-h-[400px]">
+                                <img id="result-img" class="max-w-full max-h-[70vh] object-contain" src="">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading Overlay -->
+            <div id="loading" class="hidden absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
+                <div class="loader w-12 h-12 border-4 border-blue-600 border-t-transparent mb-6"></div>
+                <h2 class="text-2xl font-bold text-slate-800">正在分析路徑...</h2>
+                <p class="text-slate-500 mt-2 font-medium">請稍候，Python 引擎正在運算中</p>
+                <div class="w-64 h-1.5 bg-gray-200 rounded-full mt-6 overflow-hidden">
+                    <div id="progress-bar" class="h-full bg-blue-600 rounded-full w-0 transition-all duration-500"></div>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Readme Drawer -->
+        <div id="readme-panel" class="fixed inset-y-0 right-0 w-[500px] bg-white shadow-2xl transform translate-x-full transition-transform duration-300 z-50 flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center bg-slate-50">
+                <h3 class="font-bold text-slate-700 flex items-center gap-2"><i data-lucide="book-open" class="text-blue-600 w-5 h-5"></i> 使用說明 (README)</h3>
+                <button onclick="toggleReadme()" class="p-1 hover:bg-slate-200 rounded"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="p-6 overflow-y-auto prose prose-sm prose-slate max-w-none">
+                <!-- Readme Content -->
+                <h3>城市步行可達性與路徑連通分析工具</h3>
+                <p>此分析工具用於評估城市設計方案前後的步行可達性變化。結合了電腦視覺與路徑演算法，模擬行人如何穿越斑馬線並擴散至周邊街廓。</p>
+
+                <h4>調整參數</h4>
+                <p>所有可調整的參數都集中在程式左側的控制面板：</p>
+                <ul>
+                    <li><strong>檔案與位置</strong>：上傳設計前(現況)與設計後(方案)的底圖。</li>
+                    <li><strong>設定起點</strong>：點擊「點圖選取」按鈕，在圖片上指定起點 (Y, X)。</li>
+                    <li><strong>顏色定義</strong>：使用吸管工具吸取牆壁(黑)、道路(白)、綠地(綠)、斑馬線(紅)的顏色。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11411/680608162__2026_01_06_01_48_48_652.png" alt="座標設定範例">
+
+                <h4>顏色與參數說明</h4>
+                <ul>
+                    <li><strong>WALL (黑色)</strong>: 障礙物與建築物。</li>
+                    <li><strong>ROAD (白色)</strong>: 一般道路 (程式會自動篩選出過寬的車道並封鎖)。</li>
+                    <li><strong>PLAZA (綠色)</strong>: 絕對安全的可行走區域 (人行道、廣場)。</li>
+                    <li><strong>PORTAL (紅色)</strong>: 斑馬線 (如傳送門般繼承步行時間並加上等待通行的懲罰時間)。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11412/680613415_site_existing.jpg" alt="現況圖範例">
+
+                <h4>結構與邏輯解釋</h4>
+                <ol>
+                    <li><strong>顏色分類</strong>：將圖片轉為電腦看得懂的矩陣,消除圖片壓縮產生的細微雜訊。</li>
+                    <li><strong>路寬篩選縫合</strong>：針對馬路區域，偵測寬度大於6公尺的區域並視為車道封鎖，只保留窄巷。同時解決斑馬線與人行道沒有完美連接的問題。</li>
+                    <li><strong>偵測有效起點</strong>：避免起點落在「看起來像路但其實是孤島」的區域。</li>
+                    <li><strong>分支模擬</strong>：模擬使用者在起點面臨的選擇，一條條分析斑馬線。</li>
+                    <li><strong>最終疊圖</strong>：所有分支情境的結果疊加，取最小值。</li>
+                </ol>
+
+                <h4>如何解讀輸出圖表</h4>
+                <p><strong>1. 單一方案分析</strong></p>
+                <ul>
+                    <li><code>Branch_Portal_XX</code>: 一次只走一條斑馬線離開起點能走到哪裡？檢視單一路徑的服務範圍。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11412/680614192_branch_portal_07.png" alt="分支圖">
+                <ul>
+                    <li><code>FINAL_Stacked</code>: 最終綜合熱力圖。(藍/綠: 短時間, 黃/紅: 長時間)。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11412/680614247_final_stacked.png" alt="疊圖">
+
+                <p><strong>2. 設計效益比較圖</strong></p>
+                <ul>
+                    <li><strong>藍色區域</strong>: 時間變快 (顏色越深省越多)。</li>
+                    <li><strong>金色區域</strong>: 新可達區域 (原本走不到)。</li>
+                    <li><strong>紅色區域</strong>: 變慢 (通常不應出現)。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11412/680614645_comparison_diff_map.png" alt="比較圖">
+
+                <h4>錯誤排查</h4>
+                <ul>
+                    <li><strong>起點落在無效區域</strong>: 請調整座標並確保起點落在綠色或窄巷內。</li>
+                    <li><strong>ValueError</strong>: 起點是孤島，請檢查周圍是否有紅色斑馬線連接，或調高 Color Tolerance。</li>
+                    <li><strong>熱力圖溢出</strong>: 白色馬路判定太寬鬆，請重新吸取白色或確認圖片無雜色。</li>
+                </ul>
+            </div>
+        </div>
+        <div id="readme-bg" onclick="toggleReadme()" class="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 hidden transition-opacity"></div>
+
+    </div>
+
+    <!-- Python Script -->
+    <script type="text/python" id="py-script">
+import io, base64, numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from skimage import io as skio
+from skimage.graph import MCP_Geometric
+from skimage.morphology import remove_small_objects, binary_opening, disk, binary_erosion, binary_dilation
+from skimage.measure import label, regionprops
+from scipy.ndimage import distance_transform_edt
+
+# --- Debug Helper ---
+def log(msg):
+    print(f"[Python] {msg}")
+
+# --- Core Analysis Logic ---
+def run_pipeline_step(img_b64, start, conf, step_name):
+    log(f"開始處理: {step_name}")
+    
+    # 1. Decode & Fix Conf
+    try:
+        if hasattr(conf, "to_py"): conf = conf.to_py()
+        if hasattr(start, "to_py"): start = start.to_py()
+        
+        data = base64.b64decode(img_b64.split(',')[1])
+        img = skio.imread(io.BytesIO(data))
+        if img.shape[-1]==4: img=img[...,:3]
+    except Exception as e:
+        return {"err": f"Setup failed: {str(e)}"}
+    
+    pal = conf['colors']
+    tol = conf['tol']
+    mpp = conf['mpp']
+    ppm = conf['ppm']
+    levels = conf['levels']
+    max_t = max(levels) if levels else 30.0
+
+    # 2. Masks
+    def get_mask(c): return np.linalg.norm(img - np.array(c), axis=2) < tol
+    wall = get_mask(pal['WALL'])
+    road = get_mask(pal['ROAD'])
+    plaza = get_mask(pal['PLAZA'])
+    portal = get_mask(pal['PORTAL'])
+    
+    road = road & (~wall) & (~portal) & (~plaza)
+    plaza = plaza & (~wall) & (~portal)
+    portal = remove_small_objects(portal, min_size=30)
+    
+    if np.sum(plaza)==0 and np.sum(road)==0:
+        return {"err": "No walkable area found. Check colors."}
+
+    img_gray = 0.299*img[:,:,0] + 0.587*img[:,:,1] + 0.114*img[:,:,2]
+
+    # 3. Geo Logic
+    rad = (6.0/2)/mpp
+    wide = binary_opening(road, disk(rad))
+    alley = road & (~wide)
+    
+    valid = plaza | alley
+    d_dest = distance_transform_edt(~valid)
+    d_red = distance_transform_edt(~portal)
+    bridge = (d_dest<4) & (d_red<4) & (~wall) & (~valid) & (~portal)
+
+    # 4. Portals
+    lbl_p, num_p = label(portal, return_num=True, connectivity=2)
+    props = regionprops(lbl_p)
+    penalties = {}
+    for p in props:
+        penalties[p.label] = 0.5 + (p.major_axis_length * mpp * 0.06)
+
+    # 5. Start
+    c0 = np.full(img.shape[:2], 100000.0)
+    c0[plaza]=1; c0[alley]=1; c0[bridge]=1
+    mcp = MCP_Geometric(c0)
+    
+    try:
+        cum, _ = mcp.find_costs([start])
+    except:
+        return {"err": "Pathfinding failed at start"}
+    
+    if cum[start[0], start[1]] > 1000:
+        return {"err": "Start point is invalid (on Wall/Wide Road)"}
+
+    mask_rough = (cum < 1000)
+    lbl_s, _ = label(mask_rough, return_num=True, connectivity=1)
+    sid = lbl_s[start[0], start[1]]
+    mask_strict = (lbl_s == sid)
+    mask_dil = binary_dilation(mask_strict, disk(4))
+    
+    conn_ids = [p.label for p in props if np.any((lbl_p==p.label)&mask_dil)]
+
+    # 6. Branching
+    final_min = np.full(img.shape[:2], np.inf)
+    branches = []
+    
+    def plot_b64(t_map, active_id):
+        reach = (t_map < 1000)
+        v_mask = binary_erosion(reach, disk(2)) & (~portal)
+        v_data = t_map.copy()
+        v_data[~v_mask] = np.nan
+        
+        fig, ax = plt.subplots(figsize=(8,8))
+        ax.imshow(img_gray, cmap='gray', alpha=0.4)
+        
+        vp = np.zeros(img.shape[:2])
+        vp[portal]=1
+        ax.imshow(vp, cmap='spring', alpha=np.where(portal,0.6,0))
+        
+        cmap = plt.cm.jet; cmap.set_bad('none')
+        im = ax.imshow(v_data, cmap=cmap, alpha=0.6, vmin=0, vmax=max_t)
+        if np.nanmax(v_data)>1:
+            ax.contour(v_data, levels=levels, colors='white', linewidths=0.8, alpha=0.8)
+        
+        ax.plot(start[1], start[0], 'w*', markersize=10, mec='k')
+        ax.axis('off')
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+        plt.close(fig)
+        return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+    loop = conn_ids if conn_ids else []
+    if not loop:
+        t = cum/ppm
+        final_min = np.minimum(final_min, t)
+        
+    for aid in loop:
+        c = c0.copy()
+        for p in props:
+            pid = p.label
+            pm = (lbl_p==pid)
+            if pid==aid: c[pm] = penalties[pid]
+            elif pid in conn_ids: c[pm] = 100000.0
+            else: c[pm] = penalties[pid]
+        
+        mcp = MCP_Geometric(c)
+        cb, _ = mcp.find_costs([start])
+        t = cb/ppm
+        final_min = np.minimum(final_min, t)
+        branches.append({"id": int(aid), "img": plot_b64(t, aid)})
+
+    final_img = plot_b64(final_min, None)
+    return {"data": final_min, "final": final_img, "branches": branches}
+
+def main(img1, img2, start, conf):
+    # Fix Types
+    if hasattr(conf, "to_py"): conf = conf.to_py()
+    if hasattr(start, "to_py"): start = start.to_py()
+
+    r1 = run_pipeline_step(img1, start, conf, "Existing")
+    if "err" in r1: return r1
+    r2 = run_pipeline_step(img2, start, conf, "Proposed")
+    if "err" in r2: return r2
+    
+    # Compare
+    t1, t2 = r1['data'], r2['data']
+    diff = t1 - t2
+    mask_new = (t1 > 1000) & (t2 < 1000)
+    mask_sig = (np.abs(diff) > 0.5) & (t1<1000) & (t2<1000)
+    
+    fig, ax = plt.subplots(figsize=(8,8))
+    ax.imshow(np.zeros_like(t1), cmap='gray', vmin=0, vmax=1)
+    
+    vd = np.full(diff.shape, np.nan)
+    vd[mask_sig] = diff[mask_sig]
+    ax.imshow(vd, cmap=plt.cm.RdBu, vmin=-5, vmax=5, alpha=0.8)
+    
+    vn = np.zeros((*diff.shape,4))
+    vn[mask_new] = [1,0.84,0,0.6]
+    ax.imshow(vn)
+    
+    ax.plot(start[1], start[0], 'k*', markersize=15)
+    ax.axis('off')
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+    plt.close(fig)
+    comp_img = base64.b64encode(buf.getvalue()).decode('utf-8')
+    
+    return {
+        "existing": {"final": r1['final'], "branches": r1['branches']},
+        "proposed": {"final": r2['final'], "branches": r2['branches']},
+        "compare": comp_img
+    }
+    </script>
+
+    <!-- JS Application Logic -->
+    <script>
+        // State
+        const state = {
+            pyodide: null,
+            imgs: { existing: null, proposed: null },
+            config: {
+                colors: { 'WALL':[8,8,10], 'ROAD':[255,255,255], 'PLAZA':[100,211,73], 'PORTAL':[226,1,19] },
+                start: [1100, 500], // y, x
+                mpp: 0.8, ppm: 200.0,
+                levels: [1,3,5,8,10,15],
+                tol: 40
+            },
+            tool: 'pan', // pan, start, measure, picker
+            activeColor: null,
+            panzoom: null,
+            viewMode: 'existing', // existing, proposed
+            measurePts: [],
+            results: null
+        };
+
+        // --- Init ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            lucide.createIcons();
+            initColors();
+            initPanzoom();
+            
+            // Load Python
+            try {
+                state.pyodide = await loadPyodide();
+                await state.pyodide.loadPackage(['numpy', 'matplotlib', 'scikit-image', 'scipy']);
+                document.getElementById('py-status').className = "flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 text-green-600 text-xs font-medium border border-green-100";
+                document.getElementById('py-status').innerHTML = '<span>● Python Ready</span>';
+                document.getElementById('btn-run').disabled = false;
+                state.pyodide.runPython(document.getElementById('py-script').textContent);
+            } catch(e) {
+                console.error(e);
+                document.getElementById('py-status').innerHTML = '<span class="text-red-500">Error Loading Python</span>';
+            }
+        });
+
+        // --- Interaction Logic ---
+        function initPanzoom() {
+            const el = document.getElementById('panzoom-element');
+            state.panzoom = Panzoom(el, { maxScale: 5, canvas: true });
+            el.parentElement.addEventListener('wheel', state.panzoom.zoomWithWheel);
+        }
+
+        function setTool(t) {
+            state.tool = t;
+            // UI Update
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active', 'bg-blue-50', 'text-blue-600'));
+            if(t !== 'picker') {
+                const btn = document.getElementById(`tool-${t}`);
+                if(btn) btn.classList.add('active', 'bg-blue-50', 'text-blue-600');
+            }
+            
+            const canvas = document.getElementById('main-canvas');
+            const container = document.getElementById('canvas-wrapper');
+            
+            if (t === 'pan') {
+                state.panzoom.resume();
+                container.style.cursor = 'grab';
+            } else {
+                state.panzoom.pause();
+                container.style.cursor = 'crosshair';
+            }
+            
+            // Clear measure if not measuring
+            if (t !== 'measure') {
+                state.measurePts = [];
+                drawOverlay();
+            }
+        }
+
+        function resetView() {
+            state.panzoom.reset();
+        }
+
+        function setViewMode(mode) {
+            state.viewMode = mode;
+            document.getElementById('view-existing').className = `px-3 py-1.5 rounded transition ${mode==='existing'?'bg-slate-800 text-white':'hover:bg-slate-200 text-slate-600'}`;
+            document.getElementById('view-proposed').className = `px-3 py-1.5 rounded transition ${mode==='proposed'?'bg-slate-800 text-white':'hover:bg-slate-200 text-slate-600'}`;
+            drawImage();
+        }
+
+        // --- Canvas & Events ---
+        const canvas = document.getElementById('main-canvas');
+        const ctx = canvas.getContext('2d');
+
+        ['file-existing', 'file-proposed'].forEach(id => {
+            document.getElementById(id).addEventListener('change', e => {
+                const f = e.target.files[0];
+                if(!f) return;
+                const r = new FileReader();
+                r.onload = evt => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const type = id.split('-')[1];
+                        state.imgs[type] = img;
+                        // Show thumbnail in sidebar
+                        const thumb = document.getElementById(`preview-thumb-${type}`);
+                        thumb.style.backgroundImage = `url(${evt.target.result})`;
+                        thumb.classList.remove('hidden');
+                        
+                        if (state.viewMode === type) drawImage();
+                    };
+                    img.src = evt.target.result;
+                };
+                r.readAsDataURL(f);
+            });
+        });
+
+        function drawImage() {
+            const img = state.imgs[state.viewMode];
+            if (!img) return;
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            drawOverlay();
+        }
+
+        function drawOverlay() {
+            const svg = document.getElementById('interaction-layer');
+            const startG = document.getElementById('marker-start');
+            const measG = document.getElementById('measure-group');
+            
+            // Draw Start
+            if (state.config.start) {
+                startG.classList.remove('hidden');
+                startG.setAttribute('transform', `translate(${state.config.start[1]}, ${state.config.start[0]})`);
+            }
+
+            // Draw Measure
+            if (state.measurePts.length > 0) {
+                measG.classList.remove('hidden');
+                const p1 = state.measurePts[0];
+                document.getElementById('measure-p1').setAttribute('cx', p1.x);
+                document.getElementById('measure-p1').setAttribute('cy', p1.y);
+                
+                if (state.measurePts.length === 2) {
+                    const p2 = state.measurePts[1];
+                    const line = document.getElementById('measure-line');
+                    line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+                    line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+                    
+                    document.getElementById('measure-p2').setAttribute('cx', p2.x);
+                    document.getElementById('measure-p2').setAttribute('cy', p2.y);
+                    
+                    // Calc distance
+                    const distPx = Math.sqrt(Math.pow(p2.x-p1.x, 2) + Math.pow(p2.y-p1.y, 2));
+                    const distM = distPx * state.config.mpp;
+                    
+                    const midX = (p1.x + p2.x)/2;
+                    const midY = (p1.y + p2.y)/2;
+                    const txt = document.getElementById('measure-text');
+                    txt.textContent = `${distM.toFixed(1)}m`;
+                    txt.setAttribute('x', midX); txt.setAttribute('y', midY - 10);
+                }
+            } else {
+                measG.classList.add('hidden');
+            }
+        }
+
+        // Canvas Click
+        canvas.addEventListener('mousedown', e => {
+            if (state.tool === 'pan') return;
+            
+            const rect = canvas.getBoundingClientRect();
+            // Scale accounting for Panzoom transformation is tricky
+            // Simpler: use offset assuming no rotation, but Panzoom scales it.
+            // We need to map client coordinates back to canvas coordinates.
+            
+            // Get Panzoom transform
+            const style = window.getComputedStyle(document.getElementById('panzoom-element'));
+            const matrix = new WebKitCSSMatrix(style.transform);
+            
+            const x = (e.clientX - rect.left) / matrix.a; 
+            const y = (e.clientY - rect.top) / matrix.a; // matrix.a is scale
+
+            if (state.tool === 'start') {
+                state.config.start = [Math.floor(y), Math.floor(x)];
+                document.getElementById('start-y').value = Math.floor(y);
+                document.getElementById('start-x').value = Math.floor(x);
+                drawOverlay();
+                setTool('pan');
+            }
+            else if (state.tool === 'picker') {
+                const p = ctx.getImageData(x, y, 1, 1).data;
+                const rgb = [p[0], p[1], p[2]];
+                state.config.colors[state.activeColor] = rgb;
+                updateColorUI();
+                setTool('pan');
+            }
+            else if (state.tool === 'measure') {
+                state.measurePts.push({x, y});
+                if (state.measurePts.length === 2) {
+                    // Prompt for real distance
+                    setTimeout(() => {
+                        const real = prompt("Enter real distance in meters:", "100");
+                        if (real) {
+                            const p1 = state.measurePts[0];
+                            const p2 = state.measurePts[1];
+                            const distPx = Math.sqrt(Math.pow(p2.x-p1.x, 2) + Math.pow(p2.y-p1.y, 2));
+                            state.config.mpp = parseFloat(real) / distPx;
+                            document.getElementById('scale-mpp').value = state.config.mpp.toFixed(3);
+                        }
+                        setTool('pan');
+                    }, 100);
+                }
+                drawOverlay();
+            }
+        });
+
+        // --- Config Sync ---
+        function initColors() {
+            const wrap = document.getElementById('color-palette');
+            wrap.innerHTML = '';
+            for (let k in state.config.colors) {
+                const rgb = state.config.colors[k];
+                const div = document.createElement('div');
+                div.className = `flex items-center justify-between p-2 rounded border bg-white cursor-pointer hover:border-blue-400 transition`;
+                div.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded shadow-sm" style="background:rgb(${rgb})"></div>
+                        <span class="text-xs font-mono text-slate-600">${k}</span>
+                    </div>
+                    <i data-lucide="pipette" class="w-3 h-3 text-slate-400"></i>
+                `;
+                div.onclick = () => {
+                    state.activeColor = k;
+                    setTool('picker');
+                };
+                wrap.appendChild(div);
+            }
+            lucide.createIcons();
+        }
+        function updateColorUI() { initColors(); }
+
+        document.getElementById('start-x').onchange = e => { state.config.start[1] = parseInt(e.target.value); drawOverlay(); };
+        document.getElementById('start-y').onchange = e => { state.config.start[0] = parseInt(e.target.value); drawOverlay(); };
+        document.getElementById('scale-mpp').onchange = e => state.config.mpp = parseFloat(e.target.value);
+        document.getElementById('walk-speed').onchange = e => state.config.ppm = parseFloat(e.target.value);
+        document.getElementById('color-tolerance').oninput = e => { 
+            state.config.tol = parseInt(e.target.value); 
+            document.getElementById('tol-display').innerText = state.config.tol;
+        };
+
+        // --- Analysis Run ---
+        document.getElementById('btn-run').onclick = async () => {
+            if(!state.imgs.existing || !state.imgs.proposed) { alert("Please upload both maps."); return; }
+            
+            document.getElementById('loading').classList.remove('hidden');
+            const progress = document.getElementById('progress-bar');
+            
+            try {
+                // Convert to Base64
+                const cvs = document.createElement('canvas');
+                const toB64 = (img) => {
+                    cvs.width = img.width; cvs.height = img.height;
+                    cvs.getContext('2d').drawImage(img,0,0);
+                    return cvs.toDataURL('image/jpeg');
+                };
+                
+                const b1 = toB64(state.imgs.existing);
+                const b2 = toB64(state.imgs.proposed);
+                
+                progress.style.width = '30%';
+                await new Promise(r=>setTimeout(r,100)); // UI refresh
+
+                const levels = document.getElementById('levels-input').value.split(',').map(n=>parseInt(n));
+                
+                const pyConf = {
+                    colors: state.config.colors,
+                    tol: state.config.tol,
+                    mpp: state.config.mpp,
+                    ppm: state.config.ppm,
+                    levels: levels
+                };
+
+                const runner = state.pyodide.globals.get('main');
+                progress.style.width = '60%';
+                
+                // Pass start point as [y, x]
+                const resProxy = runner(b1, b2, state.config.start, pyConf);
+                const res = resProxy.toJs();
+                resProxy.destroy();
+                
+                if(res.err) throw new Error(res.err);
+                
+                progress.style.width = '100%';
+                state.results = res;
+                showResultsPanel();
+
+            } catch(e) {
+                alert("Error: " + e.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        };
+
+        // --- Results UI ---
+        function showResultsPanel() {
+            document.getElementById('results-overlay').classList.remove('hidden');
+            showResult('compare');
+        }
+        function closeResults() {
+            document.getElementById('results-overlay').classList.add('hidden');
+        }
+
+        let currentTabData = null;
+        window.showResult = (type) => {
+            // Tabs UI
+            document.querySelectorAll('.res-tab').forEach(b => b.classList.remove('bg-blue-50', 'text-blue-700', 'border-blue-200'));
+            // Highlight current (simple logic based on order for now or add ID)
+            
+            const controls = document.getElementById('branch-controls');
+            const img = document.getElementById('result-img');
+            const slider = document.getElementById('branch-slider');
+            const dlBtn = document.getElementById('dl-current');
+
+            if (type === 'compare') {
+                controls.classList.add('hidden');
+                img.src = 'data:image/png;base64,' + state.results.compare;
+                dlBtn.onclick = () => download(state.results.compare, 'compare.png');
+            } else {
+                controls.classList.remove('hidden');
+                currentTabData = state.results[type]; // {final, branches:[]}
+                
+                slider.max = currentTabData.branches.length;
+                slider.value = 0;
+                updateBranchView();
+            }
+        };
+
+        function updateBranchView() {
+            const idx = parseInt(document.getElementById('branch-slider').value);
+            const label = document.getElementById('branch-label');
+            const img = document.getElementById('result-img');
+            const dl = document.getElementById('dl-current');
+            
+            if (idx === 0) {
+                label.innerText = "Final Stacked";
+                img.src = 'data:image/png;base64,' + currentTabData.final;
+                dl.onclick = () => download(currentTabData.final, 'final.png');
+            } else {
+                const b = currentTabData.branches[idx-1];
+                label.innerText = `Branch #${b.id}`;
+                img.src = 'data:image/png;base64,' + b.img;
+                dl.onclick = () => download(b.img, `branch_${b.id}.png`);
+            }
+        }
+
+        window.stepBranch = (d) => {
+            const s = document.getElementById('branch-slider');
+            s.value = Math.min(Math.max(0, parseInt(s.value)+d), s.max);
+            updateBranchView();
+        }
+        document.getElementById('branch-slider').oninput = updateBranchView;
+
+        function download(b64, name) {
+            const a = document.createElement('a');
+            a.href = 'data:image/png;base64,' + b64;
+            a.download = name;
+            a.click();
+        }
+
+        // Readme
+        window.toggleReadme = () => {
+            const p = document.getElementById('readme-panel');
+            const b = document.getElementById('readme-bg');
+            if (p.classList.contains('translate-x-full')) {
+                p.classList.remove('translate-x-full');
+                b.classList.remove('hidden');
+                setTimeout(()=>b.classList.remove('opacity-0'), 10);
+            } else {
+                p.classList.add('translate-x-full');
+                b.classList.add('opacity-0');
+                setTimeout(()=>b.classList.add('hidden'), 300);
+            }
+        };
+
+    </script>
+</body>
+</html>
