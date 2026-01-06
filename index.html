@@ -265,9 +265,9 @@
                 </div>
                 <div class="flex flex-1 overflow-hidden">
                     <div class="w-48 bg-gray-50 border-r flex flex-col">
-                        <button onclick="switchTab('tab-existing')" class="result-tab active p-4 text-left font-medium hover:bg-gray-200 border-l-4 border-blue-600 bg-white text-sm">現況分析</button>
-                        <button onclick="switchTab('tab-proposed')" class="result-tab p-4 text-left font-medium hover:bg-gray-200 border-l-4 border-transparent text-sm">設計後分析</button>
-                        <button onclick="switchTab('tab-compare')" class="result-tab p-4 text-left font-medium hover:bg-gray-200 border-l-4 border-transparent text-sm">效益比較</button>
+                        <button onclick="switchTab('tab-existing', this)" class="result-tab active p-4 text-left font-medium hover:bg-gray-200 border-l-4 border-blue-600 bg-white text-sm">現況分析</button>
+                        <button onclick="switchTab('tab-proposed', this)" class="result-tab p-4 text-left font-medium hover:bg-gray-200 border-l-4 border-transparent text-sm">設計後分析</button>
+                        <button onclick="switchTab('tab-compare', this)" class="result-tab p-4 text-left font-medium hover:bg-gray-200 border-l-4 border-transparent text-sm">效益比較</button>
                     </div>
                     <div class="flex-1 p-6 overflow-y-auto">
                         <div id="tab-existing" class="tab-content h-full flex flex-col gap-4">
@@ -334,17 +334,15 @@ from skimage.measure import label, regionprops
 from scipy.ndimage import distance_transform_edt
 
 def run_pipeline_step(img_b64, start_point_proxy, config_proxy, step_name):
-    # --- FIX START: Convert JS Proxies to Python Objects ---
     config = config_proxy.to_py()
     start_point = start_point_proxy.to_py()
-    # --- FIX END ---
 
     # Unpack config
     pal = config['palette']
     tol = config['tolerance']
     mpp = config['mpp']
     ppm = config['ppm']
-    levels = config['levels'] # List of ints [1, 3, 5...]
+    levels = config['levels'] 
     max_time = max(levels) if levels else 30.0
 
     # Load Image
@@ -500,14 +498,16 @@ def run_comparison(res1, res2, start_point):
     return base64.b64encode(buf.getvalue()).decode('utf-8')
 
 def main_process(img1, img2, start, conf):
-    # Pass 'start' and 'conf' directly; run_pipeline_step handles the .to_py() conversion
     r1 = run_pipeline_step(img1, start, conf, "Existing")
     if "error" in r1: return r1
     r2 = run_pipeline_step(img2, start, conf, "Proposed")
     if "error" in r2: return r2
     
-    # Note: start is a JS Proxy here too, so we convert it for run_comparison
-    start_py = start.to_py()
+    try:
+        start_py = start.to_py()
+    except:
+        start_py = start 
+
     comp_img = run_comparison(r1, r2, start_py)
     
     return {
@@ -519,7 +519,7 @@ def main_process(img1, img2, start, conf):
 
     <script>
         let pyodide = null;
-        let toolState = null; // 'picker' | 'start' | 'calibrate_1' | 'calibrate_2'
+        let toolState = null; 
         let activeColorKey = null;
         let calibrationPoints = [];
         
@@ -577,7 +577,7 @@ def main_process(img1, img2, start, conf):
         document.getElementById('btn-calibrate').onclick = () => {
             calibrationPoints = [];
             setTool('calibrate_1', "請點擊測量線的 第一個點");
-            document.getElementById('svg-cal-existing').classList.remove('hidden'); // Only calibrate on existing
+            document.getElementById('svg-cal-existing').classList.remove('hidden'); 
         };
 
         function updateCalibrationVis(x, y) {
@@ -626,7 +626,6 @@ def main_process(img1, img2, start, conf):
                 document.getElementById('disp-ppm').innerText = newPpm.toFixed(1);
             }
             
-            // Cleanup
             setTool(null);
             document.getElementById('svg-cal-existing').classList.add('hidden');
         }
@@ -794,7 +793,7 @@ def main_process(img1, img2, start, conf):
                 
                 const runFunc = pyodide.globals.get('main_process');
                 const resProxy = runFunc(b64_1, b64_2, [config.startY, config.startX], pyConf);
-                const res = resProxy.toJs();
+                const res = resProxy.toJs({dict_converter: Object.fromEntries});
                 resProxy.destroy();
 
                 if(res.error) throw new Error(res.error);
@@ -855,11 +854,25 @@ def main_process(img1, img2, start, conf):
             s.oninput();
         };
 
-        window.switchTab = (id) => {
+        // --- FIX: Updated switchTab to handle programmatic calls safely ---
+        window.switchTab = (id, element) => {
+            // Hide all
             document.querySelectorAll('.tab-content').forEach(e => e.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
-            document.querySelectorAll('.result-tab').forEach(e => e.classList.remove('border-blue-600', 'bg-white'));
-            event.target.classList.add('border-blue-600', 'bg-white');
+            
+            // Reset styles
+            const tabs = document.querySelectorAll('.result-tab');
+            tabs.forEach(e => e.classList.remove('border-blue-600', 'bg-white'));
+            
+            // Highlight current
+            if (element) {
+                element.classList.add('border-blue-600', 'bg-white');
+            } else {
+                // Fallback for auto-switching
+                if(id === 'tab-existing') tabs[0].classList.add('border-blue-600', 'bg-white');
+                else if(id === 'tab-proposed') tabs[1].classList.add('border-blue-600', 'bg-white');
+                else if(id === 'tab-compare') tabs[2].classList.add('border-blue-600', 'bg-white');
+            }
         };
 
         function download(b64, name) {
