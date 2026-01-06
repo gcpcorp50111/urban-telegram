@@ -1,0 +1,886 @@
+<index html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>城市步行可達性分析工具 (Urban Connectivity Tool)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <!-- Pyodide -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        canvas { cursor: crosshair; }
+        
+        .range-track {
+            position: relative;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 3px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+        }
+        .range-tick {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            background: #3b82f6;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .range-label {
+            position: absolute;
+            top: 12px;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: #6b7280;
+        }
+        /* Custom Scrollbar for Readme */
+        .prose img {
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-top: 1em;
+            margin-bottom: 1em;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center shadow-sm z-10">
+        <div class="flex items-center gap-3">
+            <i data-lucide="map" class="text-blue-600"></i>
+            <h1 class="text-xl font-bold tracking-tight">Urban Connectivity Analysis Tool</h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <span id="py-status" class="text-xs font-medium text-orange-500 flex items-center gap-2">
+                <div class="loader w-4 h-4 border-2"></div> 初始化 Python 環境中...
+            </span>
+            
+            <!-- Readme Button -->
+            <button onclick="toggleReadme()" class="flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-blue-600 transition bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-full">
+                <i data-lucide="book-open" class="w-4 h-4"></i> 使用說明
+            </button>
+
+            <!-- Github Link -->
+            <a href="https://github.com/gcpcorp50111/urban-telegram" target="_blank" class="text-gray-500 hover:text-black transition" title="View on GitHub">
+                <i data-lucide="github"></i>
+            </a>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+        
+        <!-- Left Sidebar: Controls -->
+        <aside class="w-80 bg-white border-r border-gray-200 overflow-y-auto p-5 flex flex-col gap-5 shadow-lg z-10">
+            
+            <!-- 1. File Upload -->
+            <div class="space-y-2">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">1. 上傳底圖</h3>
+                <input type="file" id="file-existing" accept="image/*" class="block w-full text-xs text-gray-500 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700"/>
+                <input type="file" id="file-proposed" accept="image/*" class="block w-full text-xs text-gray-500 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-green-50 file:text-green-700"/>
+            </div>
+
+            <hr class="border-gray-100">
+
+            <!-- 2. Start Point -->
+            <div class="space-y-2">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">2. 設定起點</h3>
+                    <button id="btn-pick-start" class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded flex gap-1 items-center border">
+                        <i data-lucide="crosshair" class="w-3 h-3"></i> 點圖選取
+                    </button>
+                </div>
+                <div class="flex gap-2 text-xs text-gray-500 font-mono" id="start-coords-display">
+                    座標: (尚未設定)
+                </div>
+                <input type="hidden" id="start-x" value="500">
+                <input type="hidden" id="start-y" value="1100">
+            </div>
+
+            <hr class="border-gray-100">
+
+            <!-- 3. Scale & Speed -->
+            <div class="space-y-3">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">3. 比例尺與速度</h3>
+                    <button id="btn-calibrate" class="text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 px-2 py-1 rounded flex gap-1 items-center border border-blue-200">
+                        <i data-lucide="ruler" class="w-3 h-3"></i> 圖上拉線測量
+                    </button>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="text-[10px] text-gray-500 block">真實距離 (m)</label>
+                        <input type="number" id="cal-dist" value="100" class="w-full border rounded px-1 py-1 text-xs">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-500 block">步行速度 (m/min)</label>
+                        <input type="number" id="walk-speed" value="80" class="w-full border rounded px-1 py-1 text-xs">
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 p-2 rounded border text-[10px] text-gray-500 space-y-1">
+                    <div class="flex justify-between"><span>比例尺 (m/px):</span> <span id="disp-mpp" class="font-mono text-black">0.800</span></div>
+                    <div class="flex justify-between"><span>圖面速度 (px/min):</span> <span id="disp-ppm" class="font-mono text-black">100.0</span></div>
+                </div>
+            </div>
+
+            <hr class="border-gray-100">
+
+            <!-- 4. Isochrone Levels -->
+            <div class="space-y-2">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">4. 等時圈 (分鐘)</h3>
+                <input type="text" id="levels-input" value="1, 3, 5, 8, 10, 15" class="w-full border rounded px-2 py-1 text-xs font-mono" placeholder="以逗號分隔">
+                
+                <div class="px-1">
+                    <div class="range-track" id="levels-track"></div>
+                </div>
+                <p class="text-[10px] text-gray-400 text-right">最大時間: <span id="max-time-disp">15</span> 分鐘</p>
+            </div>
+
+            <hr class="border-gray-100">
+
+            <!-- 5. Color Palette -->
+            <div class="space-y-2">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">5. 顏色定義</h3>
+                <div class="grid grid-cols-4 gap-1" id="color-pickers">
+                    <!-- JS generated -->
+                </div>
+                <div class="flex items-center gap-2 mt-1">
+                    <label class="text-[10px] text-gray-500 whitespace-nowrap">容許誤差</label>
+                    <input type="range" id="color-tolerance" min="10" max="100" value="40" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    <span id="tol-val" class="text-[10px] w-4 text-right">40</span>
+                </div>
+            </div>
+
+            <!-- Run Button -->
+            <button id="btn-run" disabled class="mt-auto w-full bg-blue-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex justify-center items-center gap-2">
+                <i data-lucide="play"></i> 開始分析
+            </button>
+
+        </aside>
+
+        <!-- Readme Drawer (Hidden by default) -->
+        <div id="readme-drawer" class="fixed inset-y-0 right-0 w-[500px] bg-white shadow-2xl transform translate-x-full transition-transform duration-300 ease-in-out z-50 flex flex-col border-l border-gray-200">
+            <div class="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                <h2 class="font-bold text-gray-800 flex items-center gap-2"><i data-lucide="book-open" class="text-blue-600"></i> 使用說明 (README)</h2>
+                <button onclick="toggleReadme()" class="p-1 hover:bg-gray-200 rounded text-gray-500"><i data-lucide="x"></i></button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6 prose prose-sm prose-blue max-w-none">
+                <!-- Readme Content -->
+                <h3>城市步行可達性與路徑連通分析工具</h3>
+                <p>此分析工具用於評估城市設計方案前後的步行可達性變化。結合了電腦視覺與路徑演算法，模擬行人如何穿越斑馬線並擴散至周邊街廓。</p>
+
+                <h4>調整參數</h4>
+                <p>所有可調整的參數都集中在程式左側的控制面板：</p>
+                <ul>
+                    <li><strong>檔案與位置</strong>：上傳設計前(現況)與設計後(方案)的底圖。</li>
+                    <li><strong>設定起點</strong>：點擊「點圖選取」按鈕，在圖片上指定起點 (Y, X)。</li>
+                    <li><strong>顏色定義</strong>：使用吸管工具吸取牆壁(黑)、道路(白)、綠地(綠)、斑馬線(紅)的顏色。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11411/680608162__2026_01_06_01_48_48_652.png" alt="座標設定範例">
+
+                <h4>顏色與參數說明</h4>
+                <ul>
+                    <li><strong>WALL (黑色)</strong>: 障礙物與建築物。</li>
+                    <li><strong>ROAD (白色)</strong>: 一般道路 (程式會自動篩選出過寬的車道並封鎖)。</li>
+                    <li><strong>PLAZA (綠色)</strong>: 絕對安全的可行走區域 (人行道、廣場)。</li>
+                    <li><strong>PORTAL (紅色)</strong>: 斑馬線 (如傳送門般繼承步行時間並加上等待通行的懲罰時間)。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11412/680613415_site_existing.jpg" alt="現況圖範例">
+
+                <h4>結構與邏輯解釋</h4>
+                <ol>
+                    <li><strong>顏色分類</strong>：將圖片轉為電腦看得懂的矩陣,消除圖片壓縮產生的細微雜訊。</li>
+                    <li><strong>路寬篩選縫合</strong>：針對馬路區域，偵測寬度大於6公尺的區域並視為車道封鎖，只保留窄巷。同時解決斑馬線與人行道沒有完美連接的問題。</li>
+                    <li><strong>偵測有效起點</strong>：避免起點落在「看起來像路但其實是孤島」的區域。</li>
+                    <li><strong>分支模擬</strong>：模擬使用者在起點面臨的選擇，一條條分析斑馬線。</li>
+                    <li><strong>最終疊圖</strong>：所有分支情境的結果疊加，取最小值。</li>
+                </ol>
+
+                <h4>如何解讀輸出圖表</h4>
+                <p><strong>1. 單一方案分析</strong></p>
+                <ul>
+                    <li><code>Branch_Portal_XX</code>: 一次只走一條斑馬線離開起點能走到哪裡？檢視單一路徑的服務範圍。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11412/680614192_branch_portal_07.png" alt="分支圖">
+                <ul>
+                    <li><code>FINAL_Stacked</code>: 最終綜合熱力圖。(藍/綠: 短時間, 黃/紅: 長時間)。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11412/680614247_final_stacked.png" alt="疊圖">
+
+                <p><strong>2. 設計效益比較圖</strong></p>
+                <ul>
+                    <li><strong>藍色區域</strong>: 時間變快 (顏色越深省越多)。</li>
+                    <li><strong>金色區域</strong>: 新可達區域 (原本走不到)。</li>
+                    <li><strong>紅色區域</strong>: 變慢 (通常不應出現)。</li>
+                </ul>
+                <img src="https://img1.pixhost.to/images/11412/680614645_comparison_diff_map.png" alt="比較圖">
+
+                <h4>錯誤排查</h4>
+                <ul>
+                    <li><strong>起點落在無效區域</strong>: 請調整座標並確保起點落在綠色或窄巷內。</li>
+                    <li><strong>ValueError</strong>: 起點是孤島，請檢查周圍是否有紅色斑馬線連接，或調高 Color Tolerance。</li>
+                    <li><strong>熱力圖溢出</strong>: 白色馬路判定太寬鬆，請重新吸取白色或確認圖片無雜色。</li>
+                </ul>
+            </div>
+        </div>
+        <!-- Overlay for Drawer -->
+        <div id="readme-overlay" onclick="toggleReadme()" class="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 hidden transition-opacity opacity-0"></div>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col bg-gray-100 overflow-hidden relative">
+            
+            <!-- Image Preview Area -->
+            <div id="preview-container" class="flex-1 p-4 overflow-auto flex justify-center gap-4 relative">
+                
+                <div id="tool-instruction" class="hidden absolute top-4 left-1/2 transform -translate-x-1/2 z-30 bg-black/70 text-white px-4 py-2 rounded-full text-sm font-medium shadow-lg pointer-events-none">
+                    工具使用中...
+                </div>
+
+                <div class="flex flex-col items-center gap-2">
+                    <span class="text-sm font-bold text-gray-500">現況 (Existing)</span>
+                    <div class="relative shadow-lg border-4 border-white bg-white group">
+                        <canvas id="canvas-existing" class="max-h-[60vh] object-contain"></canvas>
+                        <div id="overlay-existing" class="absolute inset-0 pointer-events-none">
+                            <div id="marker-existing" class="absolute w-4 h-4 bg-yellow-400 rounded-full border-2 border-black transform -translate-x-1/2 -translate-y-1/2 hidden shadow-sm"></div>
+                            <svg id="svg-cal-existing" class="absolute inset-0 w-full h-full hidden">
+                                <line x1="0" y1="0" x2="0" y2="0" stroke="blue" stroke-width="2" stroke-dasharray="4" />
+                                <circle cx="0" cy="0" r="3" fill="blue" class="pt-a" />
+                                <circle cx="0" cy="0" r="3" fill="blue" class="pt-b" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex flex-col items-center gap-2">
+                    <span class="text-sm font-bold text-gray-500">設計後 (Proposed)</span>
+                    <div class="relative shadow-lg border-4 border-white bg-white">
+                        <canvas id="canvas-proposed" class="max-h-[60vh] object-contain"></canvas>
+                        <div id="overlay-proposed" class="absolute inset-0 pointer-events-none">
+                            <div id="marker-proposed" class="absolute w-4 h-4 bg-yellow-400 rounded-full border-2 border-black transform -translate-x-1/2 -translate-y-1/2 hidden shadow-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Panel -->
+            <div id="results-panel" class="hidden absolute inset-0 bg-white z-40 flex flex-col">
+                <div class="bg-gray-800 text-white px-6 py-3 flex justify-between items-center">
+                    <h2 class="font-bold">分析結果 (Analysis Results)</h2>
+                    <button onclick="document.getElementById('results-panel').classList.add('hidden')" class="hover:text-gray-300"><i data-lucide="x"></i></button>
+                </div>
+                <div class="flex flex-1 overflow-hidden">
+                    <div class="w-48 bg-gray-50 border-r flex flex-col">
+                        <button onclick="switchTab('tab-existing')" class="result-tab active p-4 text-left font-medium hover:bg-gray-200 border-l-4 border-blue-600 bg-white text-sm">現況分析</button>
+                        <button onclick="switchTab('tab-proposed')" class="result-tab p-4 text-left font-medium hover:bg-gray-200 border-l-4 border-transparent text-sm">設計後分析</button>
+                        <button onclick="switchTab('tab-compare')" class="result-tab p-4 text-left font-medium hover:bg-gray-200 border-l-4 border-transparent text-sm">效益比較</button>
+                    </div>
+                    <div class="flex-1 p-6 overflow-y-auto">
+                        <div id="tab-existing" class="tab-content h-full flex flex-col gap-4">
+                            <div class="flex justify-between items-center">
+                                <h3 class="font-bold">現況：分支模擬</h3>
+                                <a id="dl-existing" class="text-blue-600 text-xs hover:underline cursor-pointer">下載</a>
+                            </div>
+                            <div class="flex gap-2 items-center bg-gray-50 p-2 rounded border">
+                                <button onclick="changeBranch('existing', -1)" class="p-1 hover:bg-gray-200 rounded"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                                <span id="label-existing" class="font-mono text-xs w-48 text-center">Final Stacked</span>
+                                <button onclick="changeBranch('existing', 1)" class="p-1 hover:bg-gray-200 rounded"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+                                <input type="range" id="slider-existing" min="0" max="0" value="0" class="flex-1 mx-4" oninput="slideBranch('existing', this.value)">
+                            </div>
+                            <div class="flex-1 border rounded bg-gray-100 flex items-center justify-center overflow-hidden">
+                                <img id="img-existing" class="max-h-full max-w-full object-contain">
+                            </div>
+                        </div>
+                        <div id="tab-proposed" class="tab-content hidden h-full flex flex-col gap-4">
+                            <div class="flex justify-between items-center">
+                                <h3 class="font-bold">設計後：分支模擬</h3>
+                                <a id="dl-proposed" class="text-blue-600 text-xs hover:underline cursor-pointer">下載</a>
+                            </div>
+                            <div class="flex gap-2 items-center bg-gray-50 p-2 rounded border">
+                                <button onclick="changeBranch('proposed', -1)" class="p-1 hover:bg-gray-200 rounded"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                                <span id="label-proposed" class="font-mono text-xs w-48 text-center">Final Stacked</span>
+                                <button onclick="changeBranch('proposed', 1)" class="p-1 hover:bg-gray-200 rounded"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+                                <input type="range" id="slider-proposed" min="0" max="0" value="0" class="flex-1 mx-4" oninput="slideBranch('proposed', this.value)">
+                            </div>
+                            <div class="flex-1 border rounded bg-gray-100 flex items-center justify-center overflow-hidden">
+                                <img id="img-proposed" class="max-h-full max-w-full object-contain">
+                            </div>
+                        </div>
+                        <div id="tab-compare" class="tab-content hidden h-full flex flex-col gap-4">
+                            <div class="flex justify-between items-center">
+                                <h3 class="font-bold">效益比較</h3>
+                                <a id="dl-compare" class="text-blue-600 text-xs hover:underline cursor-pointer">下載</a>
+                            </div>
+                            <div class="flex-1 border rounded bg-gray-100 flex items-center justify-center overflow-hidden">
+                                <img id="img-compare" class="max-h-full max-w-full object-contain">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading Overlay -->
+            <div id="loading-overlay" class="hidden absolute inset-0 bg-white/90 z-50 flex flex-col items-center justify-center backdrop-blur-sm">
+                <div class="loader w-10 h-10 border-4 border-blue-600 border-t-transparent mb-4"></div>
+                <h3 class="text-lg font-bold text-blue-800">運算中...</h3>
+                <div class="w-64 bg-gray-200 rounded-full h-2 mt-4"><div id="progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div></div>
+                <p id="progress-text" class="text-xs text-gray-400 mt-2">準備中...</p>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Python Code -->
+    <script type="text/python" id="python-script">
+import io, base64, numpy as np, matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+from skimage import io as skio
+from skimage.graph import MCP_Geometric
+from skimage.morphology import remove_small_objects, binary_opening, disk, binary_erosion, binary_dilation
+from skimage.measure import label, regionprops
+from scipy.ndimage import distance_transform_edt
+
+def run_pipeline_step(img_b64, start_point, config, step_name):
+    # Unpack config
+    pal = config['palette']
+    tol = config['tolerance']
+    mpp = config['mpp']
+    ppm = config['ppm']
+    levels = config['levels'] # List of ints [1, 3, 5...]
+    max_time = max(levels) if levels else 30.0
+
+    # Load Image
+    img_data = base64.b64decode(img_b64.split(',')[1])
+    img_rgb = skio.imread(io.BytesIO(img_data))
+    if img_rgb.shape[-1] == 4: img_rgb = img_rgb[..., :3]
+
+    # 1. Color Masking
+    def get_mask(target):
+        return np.linalg.norm(img_rgb - np.array(target), axis=2) < tol
+
+    mask_wall = get_mask(pal['WALL'])
+    mask_road = get_mask(pal['ROAD'])
+    mask_plaza = get_mask(pal['PLAZA'])
+    mask_portal = get_mask(pal['PORTAL'])
+    
+    # Mutual exclusion
+    mask_road = mask_road & (~mask_wall) & (~mask_portal) & (~mask_plaza)
+    mask_plaza = mask_plaza & (~mask_wall) & (~mask_portal)
+    mask_portal = remove_small_objects(mask_portal, min_size=30)
+    
+    img_gray = 0.299 * img_rgb[:,:,0] + 0.587 * img_rgb[:,:,1] + 0.114 * img_rgb[:,:,2]
+
+    # 2. Road & Bridging
+    car_road_radius = (6.0 / 2) / mpp
+    mask_wide_road = binary_opening(mask_road, disk(car_road_radius))
+    mask_alley = mask_road & (~mask_wide_road)
+    
+    mask_valid_dest = mask_plaza | mask_alley
+    dist_dest = distance_transform_edt(~mask_valid_dest)
+    dist_red = distance_transform_edt(~mask_portal)
+    mask_bridge = (dist_dest < 4.0) & (dist_red < 4.0) & (~mask_wall) & (~mask_valid_dest) & (~mask_portal)
+
+    # 3. Portals
+    labeled_portals, num_portals = label(mask_portal, return_num=True, connectivity=2)
+    props = regionprops(labeled_portals)
+    penalty_dict = {}
+    base_pen = 0.5
+    fact_pen = 0.06
+    for p in props:
+        length_m = p.major_axis_length * mpp
+        penalty_dict[p.label] = base_pen + (length_m * fact_pen)
+
+    # 4. Start Check
+    costs_start = np.full(img_rgb.shape[:2], 100000.0)
+    costs_start[mask_plaza] = 1.0
+    costs_start[mask_alley] = 1.0
+    costs_start[mask_bridge] = 1.0
+    
+    mcp = MCP_Geometric(costs_start)
+    cum_costs, _ = mcp.find_costs([start_point])
+    
+    if cum_costs[start_point[0], start_point[1]] > 1000:
+        return {"error": f"{step_name}: 起點落在無效區域"}
+
+    mask_start = (cum_costs < 1000)
+    lbl_start, _ = label(mask_start, return_num=True, connectivity=1)
+    sid = lbl_start[start_point[0], start_point[1]]
+    mask_start_strict = (lbl_start == sid)
+    
+    mask_dilated = binary_dilation(mask_start_strict, disk(4))
+    conn_ids = [p.label for p in props if np.any((labeled_portals == p.label) & mask_dilated)]
+
+    # 5. Branching
+    final_min = np.full(img_rgb.shape[:2], np.inf)
+    branches = []
+    
+    # Plot helper
+    def plot_to_b64(time_map, active_id):
+        reachable = (time_map < 1000)
+        vis_mask = binary_erosion(reachable, disk(2)) & (~mask_portal)
+        vis_data = time_map.copy()
+        vis_data[~vis_mask] = np.nan
+        
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.imshow(img_gray, cmap='gray', alpha=0.4)
+        
+        # Draw portals
+        vis_p = np.zeros(img_gray.shape)
+        vis_p[mask_portal] = 1
+        ax.imshow(vis_p, cmap='spring', alpha=np.where(mask_portal, 0.6, 0.0))
+        
+        cmap = plt.cm.jet
+        cmap.set_bad('none')
+        im = ax.imshow(vis_data, cmap=cmap, alpha=0.6, vmin=0, vmax=max_time)
+        
+        if np.nanmax(vis_data) > 1:
+            ax.contour(vis_data, levels=levels, colors='white', linewidths=0.8, alpha=0.8)
+        
+        ax.plot(start_point[1], start_point[0], 'w*', markersize=10, markeredgecolor='k')
+        ax.axis('off')
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+        plt.close(fig)
+        return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+    loop_ids = conn_ids if conn_ids else []
+    
+    for active_id in loop_ids:
+        costs = np.full(img_rgb.shape[:2], 100000.0)
+        costs[mask_plaza] = 1.0
+        costs[mask_alley] = 1.0
+        costs[mask_bridge] = 1.0
+        for p in props:
+            pid = p.label
+            p_mask = (labeled_portals == pid)
+            if pid == active_id: costs[p_mask] = penalty_dict[pid]
+            elif pid in conn_ids: costs[p_mask] = 100000.0
+            else: costs[p_mask] = penalty_dict[pid]
+        
+        mcp = MCP_Geometric(costs)
+        cum, _ = mcp.find_costs([start_point])
+        t_map = cum / ppm
+        final_min = np.minimum(final_min, t_map)
+        
+        branches.append({"id": int(active_id), "b64": plot_to_b64(t_map, active_id)})
+
+    final_b64 = plot_to_b64(final_min, None)
+    
+    return {
+        "final_data": final_min, 
+        "final_img": final_b64,
+        "branches": branches
+    }
+
+def run_comparison(res1, res2, start_point):
+    t1 = res1['final_data']
+    t2 = res2['final_data']
+    
+    diff = t1 - t2
+    mask_new = (t1 > 1000) & (t2 < 1000)
+    mask_sig = (np.abs(diff) > 0.5) & (t1 < 1000) & (t2 < 1000)
+    
+    fig, ax = plt.subplots(figsize=(8, 8))
+    # Simple background
+    ax.imshow(np.zeros_like(t1), cmap='gray', vmin=0, vmax=1) 
+    
+    vis_diff = np.full(diff.shape, np.nan)
+    vis_diff[mask_sig] = diff[mask_sig]
+    ax.imshow(vis_diff, cmap=plt.cm.RdBu, vmin=-5, vmax=5, alpha=0.8)
+    
+    vis_new = np.zeros((*diff.shape, 4))
+    vis_new[mask_new] = [1, 0.84, 0, 0.6]
+    ax.imshow(vis_new)
+    
+    ax.plot(start_point[1], start_point[0], 'k*', markersize=15)
+    ax.axis('off')
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+def main_process(img1, img2, start, conf):
+    r1 = run_pipeline_step(img1, start, conf, "Existing")
+    if "error" in r1: return r1
+    r2 = run_pipeline_step(img2, start, conf, "Proposed")
+    if "error" in r2: return r2
+    
+    comp_img = run_comparison(r1, r2, start)
+    
+    return {
+        "existing": {"final": r1['final_img'], "branches": r1['branches']},
+        "proposed": {"final": r2['final_img'], "branches": r2['branches']},
+        "compare": comp_img
+    }
+    </script>
+
+    <!-- JS Logic -->
+    <script>
+        let pyodide = null;
+        let toolState = null; // 'picker' | 'start' | 'calibrate_1' | 'calibrate_2'
+        let activeColorKey = null;
+        let calibrationPoints = [];
+        
+        // Default Config
+        const config = {
+            colors: {
+                'WALL':   [8, 8, 10],
+                'ROAD':   [255, 255, 255],
+                'PLAZA':  [100, 211, 73],
+                'PORTAL': [226, 1, 19]
+            },
+            startX: 500, startY: 1100,
+            mpp: 0.8, ppm: 200.0,
+            levels: [1, 3, 5, 8, 10, 15]
+        };
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            lucide.createIcons();
+            initColorUI();
+            updateLevelUI();
+            
+            // Pyodide Init
+            try {
+                pyodide = await loadPyodide();
+                await pyodide.loadPackage(['numpy', 'matplotlib', 'scikit-image', 'scipy']);
+                document.getElementById('py-status').innerHTML = '<span class="text-green-600 font-bold">● Python 就緒</span>';
+                document.getElementById('btn-run').disabled = false;
+                pyodide.runPython(document.getElementById('python-script').textContent);
+            } catch (err) {
+                document.getElementById('py-status').innerText = 'Python 載入失敗';
+            }
+        });
+
+        // --- Readme Toggle ---
+        function toggleReadme() {
+            const drawer = document.getElementById('readme-drawer');
+            const overlay = document.getElementById('readme-overlay');
+            if (drawer.classList.contains('translate-x-full')) {
+                drawer.classList.remove('translate-x-full');
+                overlay.classList.remove('hidden', 'opacity-0');
+            } else {
+                drawer.classList.add('translate-x-full');
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }
+        }
+
+        // --- Tools: Start Point ---
+        document.getElementById('btn-pick-start').onclick = () => {
+            setTool('start', "請在圖片上點擊 起點位置");
+        };
+
+        // --- Tools: Calibration ---
+        document.getElementById('btn-calibrate').onclick = () => {
+            calibrationPoints = [];
+            setTool('calibrate_1', "請點擊測量線的 第一個點");
+            document.getElementById('svg-cal-existing').classList.remove('hidden'); // Only calibrate on existing
+        };
+
+        function updateCalibrationVis(x, y) {
+            const svg = document.getElementById('svg-cal-existing');
+            const ptA = svg.querySelector('.pt-a');
+            const ptB = svg.querySelector('.pt-b');
+            const line = svg.querySelector('line');
+
+            if (calibrationPoints.length >= 1) {
+                ptA.setAttribute('cx', calibrationPoints[0].x);
+                ptA.setAttribute('cy', calibrationPoints[0].y);
+                ptA.style.display = 'block';
+            } else { ptA.style.display = 'none'; }
+
+            if (calibrationPoints.length === 2) {
+                ptB.setAttribute('cx', calibrationPoints[1].x);
+                ptB.setAttribute('cy', calibrationPoints[1].y);
+                ptB.style.display = 'block';
+                line.setAttribute('x1', calibrationPoints[0].x);
+                line.setAttribute('y1', calibrationPoints[0].y);
+                line.setAttribute('x2', calibrationPoints[1].x);
+                line.setAttribute('y2', calibrationPoints[1].y);
+                line.style.display = 'block';
+            } else {
+                ptB.style.display = 'none';
+                line.style.display = 'none';
+            }
+        }
+
+        function finishCalibration() {
+            const dx = calibrationPoints[1].x - calibrationPoints[0].x;
+            const dy = calibrationPoints[1].y - calibrationPoints[0].y;
+            const pxDist = Math.sqrt(dx*dx + dy*dy);
+            
+            const realDist = parseFloat(document.getElementById('cal-dist').value) || 100;
+            const walkSpeed = parseFloat(document.getElementById('walk-speed').value) || 80;
+
+            if (pxDist > 0) {
+                const newMpp = realDist / pxDist;
+                const newPpm = walkSpeed / newMpp;
+                
+                config.mpp = newMpp;
+                config.ppm = newPpm;
+                
+                document.getElementById('disp-mpp').innerText = newMpp.toFixed(3);
+                document.getElementById('disp-ppm').innerText = newPpm.toFixed(1);
+            }
+            
+            // Cleanup
+            setTool(null);
+            document.getElementById('svg-cal-existing').classList.add('hidden');
+        }
+
+        // --- Levels UI ---
+        document.getElementById('levels-input').addEventListener('change', (e) => {
+            const val = e.target.value;
+            const arr = val.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n)).sort((a,b)=>a-b);
+            if (arr.length > 0) {
+                config.levels = arr;
+                updateLevelUI();
+            }
+        });
+
+        function updateLevelUI() {
+            const track = document.getElementById('levels-track');
+            track.innerHTML = '';
+            const max = Math.max(...config.levels);
+            document.getElementById('max-time-disp').innerText = max;
+            
+            config.levels.forEach(lvl => {
+                const pct = (lvl / max) * 100;
+                const tick = document.createElement('div');
+                tick.className = 'range-tick';
+                tick.style.left = `${pct}%`;
+                tick.title = `${lvl} min`;
+                
+                const lbl = document.createElement('div');
+                lbl.className = 'range-label';
+                lbl.innerText = lvl;
+                tick.appendChild(lbl);
+                track.appendChild(tick);
+            });
+        }
+
+        // --- Canvas Interactions ---
+        ['canvas-existing', 'canvas-proposed'].forEach(id => {
+            const canvas = document.getElementById(id);
+            canvas.addEventListener('click', (e) => {
+                if (!toolState) return;
+
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const x = (e.clientX - rect.left) * scaleX;
+                const y = (e.clientY - rect.top) * scaleY;
+
+                if (toolState === 'start') {
+                    config.startX = Math.floor(x);
+                    config.startY = Math.floor(y);
+                    updateMarkers();
+                    setTool(null);
+                } else if (toolState === 'picker') {
+                    const ctx = canvas.getContext('2d');
+                    const p = ctx.getImageData(x, y, 1, 1).data;
+                    config.colors[activeColorKey] = [p[0], p[1], p[2]];
+                    updateColorUI();
+                    setTool(null);
+                } else if (toolState.startsWith('calibrate')) {
+                    if (id !== 'canvas-existing') { alert("請在 [現況圖] 上進行測量"); return; }
+                    
+                    calibrationPoints.push({x, y});
+                    updateCalibrationVis();
+                    
+                    if (calibrationPoints.length === 1) {
+                        setTool('calibrate_2', "請點擊 第二個點");
+                    } else if (calibrationPoints.length === 2) {
+                        finishCalibration();
+                    }
+                }
+            });
+        });
+
+        // --- Helpers ---
+        function setTool(mode, msg) {
+            toolState = mode;
+            const banner = document.getElementById('tool-instruction');
+            if (mode) {
+                banner.innerText = msg;
+                banner.classList.remove('hidden');
+                document.body.style.cursor = 'crosshair';
+            } else {
+                banner.classList.add('hidden');
+                document.body.style.cursor = 'default';
+            }
+        }
+
+        function updateMarkers() {
+            ['marker-existing', 'marker-proposed'].forEach((mid, idx) => {
+                const cvs = document.getElementById(idx===0 ? 'canvas-existing' : 'canvas-proposed');
+                const m = document.getElementById(mid);
+                if (cvs.width > 0) {
+                    m.classList.remove('hidden');
+                    m.style.left = (config.startX / cvs.width * 100) + '%';
+                    m.style.top = (config.startY / cvs.height * 100) + '%';
+                    document.getElementById('start-coords-display').innerText = `座標: (${Math.floor(config.startX)}, ${Math.floor(config.startY)})`;
+                }
+            });
+        }
+
+        function initColorUI() {
+            const container = document.getElementById('color-pickers');
+            container.innerHTML = '';
+            const map = {'WALL':'黑/牆', 'ROAD':'白/路', 'PLAZA':'綠/地', 'PORTAL':'紅/門'};
+            for (let k in config.colors) {
+                const rgb = config.colors[k];
+                const div = document.createElement('div');
+                div.className = 'flex flex-col items-center cursor-pointer p-1 hover:bg-gray-100 rounded';
+                div.onclick = () => { activeColorKey = k; setTool('picker', `吸取 [${map[k]}] 的顏色`); };
+                div.innerHTML = `
+                    <div class="w-6 h-6 rounded border shadow-sm mb-1" style="background:rgb(${rgb.join(',')})"></div>
+                    <span class="text-[9px] text-gray-500">${map[k]}</span>
+                `;
+                container.appendChild(div);
+            }
+        }
+        function updateColorUI() { initColorUI(); }
+
+        // --- File Loading ---
+        ['file-existing', 'file-proposed'].forEach(fid => {
+            document.getElementById(fid).addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const cvs = document.getElementById(fid.replace('file', 'canvas'));
+                        cvs.width = img.width; cvs.height = img.height;
+                        cvs.getContext('2d').drawImage(img, 0, 0);
+                        updateMarkers();
+                    };
+                    img.src = evt.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        });
+
+        // --- RUN ---
+        document.getElementById('btn-run').onclick = async () => {
+            const f1 = document.getElementById('file-existing').files[0];
+            const f2 = document.getElementById('file-proposed').files[0];
+            if(!f1 || !f2) { alert("請上傳兩張圖"); return; }
+
+            const overlay = document.getElementById('loading-overlay');
+            overlay.classList.remove('hidden');
+            const pBar = document.getElementById('progress-bar');
+            
+            try {
+                // Prepare Data
+                const b64_1 = await new Promise(r => { const rd=new FileReader(); rd.onload=()=>r(rd.result); rd.readAsDataURL(f1); });
+                const b64_2 = await new Promise(r => { const rd=new FileReader(); rd.onload=()=>r(rd.result); rd.readAsDataURL(f2); });
+                
+                const pyConf = {
+                    palette: config.colors,
+                    tolerance: parseInt(document.getElementById('color-tolerance').value),
+                    mpp: config.mpp,
+                    ppm: config.ppm,
+                    levels: config.levels
+                };
+
+                // Run Python
+                pBar.style.width = '60%';
+                await new Promise(r => setTimeout(r, 100)); // UI Render
+                
+                const runFunc = pyodide.globals.get('main_process');
+                const resProxy = runFunc(b64_1, b64_2, [config.startY, config.startX], pyConf);
+                const res = resProxy.toJs();
+                resProxy.destroy();
+
+                if(res.error) throw new Error(res.error);
+
+                // Render Results
+                renderResults(res);
+                document.getElementById('results-panel').classList.remove('hidden');
+
+            } catch(e) {
+                alert("錯誤: " + e.message);
+            } finally {
+                overlay.classList.add('hidden');
+            }
+        };
+
+        // --- Result Logic ---
+        function renderResults(res) {
+            setupTab('existing', res.existing);
+            setupTab('proposed', res.proposed);
+            document.getElementById('img-compare').src = 'data:image/png;base64,' + res.compare;
+            document.getElementById('dl-compare').onclick = () => download(res.compare, 'compare.png');
+            switchTab('tab-existing');
+        }
+
+        function setupTab(type, data) {
+            const slider = document.getElementById(`slider-${type}`);
+            const label = document.getElementById(`label-${type}`);
+            const img = document.getElementById(`img-${type}`);
+            const dl = document.getElementById(`dl-${type}`);
+            
+            slider.max = data.branches.length;
+            slider.value = 0;
+            slider.dataset.branches = JSON.stringify(data.branches);
+            slider.dataset.final = data.final;
+            
+            const update = () => {
+                const idx = parseInt(slider.value);
+                const branches = JSON.parse(slider.dataset.branches);
+                if(idx === 0) {
+                    label.innerText = "Final Stacked";
+                    img.src = 'data:image/png;base64,' + slider.dataset.final;
+                    dl.onclick = () => download(slider.dataset.final, `${type}_final.png`);
+                } else {
+                    const b = branches[idx-1];
+                    label.innerText = `Branch #${b.id}`;
+                    img.src = 'data:image/png;base64,' + b.b64;
+                    dl.onclick = () => download(b.b64, `${type}_branch_${b.id}.png`);
+                }
+            };
+            slider.oninput = update;
+            update();
+        }
+
+        window.changeBranch = (type, d) => {
+            const s = document.getElementById(`slider-${type}`);
+            s.value = Math.min(Math.max(0, parseInt(s.value)+d), s.max);
+            s.oninput();
+        };
+
+        window.switchTab = (id) => {
+            document.querySelectorAll('.tab-content').forEach(e => e.classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+            document.querySelectorAll('.result-tab').forEach(e => e.classList.remove('border-blue-600', 'bg-white'));
+            event.target.classList.add('border-blue-600', 'bg-white');
+        };
+
+        function download(b64, name) {
+            const a = document.createElement('a');
+            a.href = 'data:image/png;base64,' + b64;
+            a.download = name;
+            a.click();
+        }
+    </script>
+</body>
+</html>
