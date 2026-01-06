@@ -10,10 +10,10 @@
 所有可調整的參數都集中在程式碼最上方的 `class USER_CONFIG` 區域。
 
 ### 1. 檔案與位置
-* **`FILE_EXISTING`**: 設計前(現況)的底圖檔名（例如 `"site_existing.jpg"`）。
-* **`FILE_PROPOSED`**: 設計後(或是不同方案)的底圖檔名。
+* **`FILE_EXISTING`**: 設計前(現況)的底圖檔名。(`site_existing.jpg`)
+* **`FILE_PROPOSED`**: 設計後(或是不同方案)的底圖檔名。(`site_design.jpg`)
 
-    * 兩張圖片需為相同尺寸，可使用repository裡的`site_existing.psd`進行修改。   
+    * 兩張圖片需為相同尺寸，可使用repository裡的`site_existing.psd`進行修改。並轉存為`site_design.jpg`   
     * 若新增了天橋、廣場或地下道，則在底圖上標示成綠色廊道(可行走區域)。
     
 * **`START_POINT`**: 起點座標 `(Y, X)`。
