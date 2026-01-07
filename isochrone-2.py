@@ -56,18 +56,18 @@ def run_analysis_pipeline(image_path, output_folder, run_name):     #執行單�
         return None
 
     print(f"[{run_name}] 進行顏色與雜訊處理...")
-    mask_wall   = get_color_mask(img_rgb, cfg.COLOR_PALETTE['WALL'],   cfg.COLOR_TOLERANCE)     #用顏色分類出不同元素
+    mask_wall   = get_color_mask(img_rgb, cfg.COLOR_PALETTE['WALL'],   cfg.COLOR_TOLERANCE) #用顏色分類出不同元素
     mask_road   = get_color_mask(img_rgb, cfg.COLOR_PALETTE['ROAD'],   cfg.COLOR_TOLERANCE)
     mask_plaza  = get_color_mask(img_rgb, cfg.COLOR_PALETTE['PLAZA'],  cfg.COLOR_TOLERANCE)
     mask_portal = get_color_mask(img_rgb, cfg.COLOR_PALETTE['PORTAL'], cfg.COLOR_TOLERANCE)
     mask_road = mask_road & (~mask_wall) & (~mask_portal) & (~mask_plaza)
     mask_plaza = mask_plaza & (~mask_wall) & (~mask_portal)
-    mask_portal = remove_small_objects(mask_portal, min_size=30)        #消除過小雜訊
+    mask_portal = remove_small_objects(mask_portal, min_size=30)                            #消除過小雜訊
     img_gray = 0.299 * img_rgb[:,:,0] + 0.587 * img_rgb[:,:,1] + 0.114 * img_rgb[:,:,2]
 
-    car_road_radius = (6.0 / 2) / cfg.METERS_PER_PIXEL                  #路寬篩選縫合
+    car_road_radius = (6.0 / 2) / cfg.METERS_PER_PIXEL                                      #路寬篩選縫合
     mask_wide_road = binary_opening(mask_road, disk(car_road_radius))
-    mask_alley = mask_road & (~mask_wide_road)                          #只保留窄巷
+    mask_alley = mask_road & (~mask_wide_road)                                              #只保留窄巷
     mask_valid_dest = mask_plaza | mask_alley
     dist_dest = distance_transform_edt(~mask_valid_dest)
     dist_red = distance_transform_edt(~mask_portal)
@@ -82,24 +82,23 @@ def run_analysis_pipeline(image_path, output_folder, run_name):     #執行單�
 
     print(f"[{run_name}] 偵測到 {num_portals} 條傳送門")                                     #告訴你有幾條斑馬線，之後再針對起點附近的計算時間
 
-    #偵測有效起點
-    costs_start = np.full(img_rgb.shape[:2], 100000.0)
+    costs_start = np.full(img_rgb.shape[:2], 100000.0)                                      #偵測有效起點，不能在建築物和馬路裡面 
     costs_start[mask_plaza] = 1.0
     costs_start[mask_alley] = 1.0
     costs_start[mask_bridge] = 1.0
-    mcp = MCP_Geometric(costs_start)                    #MCP_Geometric是skimage裡面的演算法，像在起點倒了一桶水
-    cum_costs, _ = mcp.find_costs([cfg.START_POINT])    #每一個點累積了多少成本，大於1000會流不動
+    mcp = MCP_Geometric(costs_start)                                                        #MCP_Geometric是skimage裡面的演算法，像在起點倒了一桶水
+    cum_costs, _ = mcp.find_costs([cfg.START_POINT])                                        #每一個點累積了多少成本，大於1000會流不動
     
     if cum_costs[cfg.START_POINT[0], cfg.START_POINT[1]] > 1000:
         print(f" [{run_name}] 起點 ({cfg.START_POINT}) 落在無效區域，請調整起點位置後重試。")
         return None
 
-    mask_start_rough = (cum_costs < 1000)               #用1000為流動成本過濾出與起點相連的斑馬線
+    mask_start_rough = (cum_costs < 1000)                                                   #用1000為流動成本過濾出與起點相連的斑馬線
     labels_rough, _ = label(mask_start_rough, return_num=True, connectivity=1)
     start_id = labels_rough[cfg.START_POINT[0], cfg.START_POINT[1]]
     mask_start_strict = (labels_rough == start_id)              
     
-    mask_dilated = binary_dilation(mask_start_strict, disk(4))  #修正圖有雜質，斑馬線與廣場有縫隙連不起來的問題
+    mask_dilated = binary_dilation(mask_start_strict, disk(4))                              #修正圖有雜質，斑馬線與廣場有縫隙連不起來的問題
     connected_ids = []
     for p in props:
         if np.any((labeled_portals == p.label) & mask_dilated):
@@ -175,7 +174,7 @@ def plot_heatmap(img_gray, time_map, mask_portal, active_id, save_path, title):
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
 
-def generate_comparison_map(map_before, map_after, save_path):                      #生成設計介入前後的差異圖
+def generate_comparison_map(map_before, map_after, save_path):                      #生成設計介入前後的差異圖(COMPARISON_Diff_Map.png)
     print("\n[Comparison] 生成差異分析圖")
     if map_before is None or map_after is None: 
         print("跳過對比圖：因為其中一張地圖生成失敗。")
