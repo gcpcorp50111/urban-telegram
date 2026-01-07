@@ -4,9 +4,8 @@
 
 線上版本:https://gcpcorp50111.github.io/urban-telegram/ (跑起來較慢)
 * 下載`site_existing.jpg` 以及 `site_design.jpg` ，進入網站後於左側選取此兩個檔案。
-
+* 使用了**scikit-image**，以Python編程語言的開源圖像處理庫 https://github.com/scikit-image/scikit-image
 ## 調整參數
-
 所有可調整的參數都集中在程式碼最上方的 `class USER_CONFIG` 區域。
 
 ### 1. 檔案與位置
